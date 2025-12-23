@@ -2,85 +2,107 @@ import { serve } from "bun";
 import Redis from "ioredis";
 import mongoose, { Schema } from "mongoose";
 
-// Connect Redis
-const REDIS_URL = "redis://localhost:6379";
-const redis = new Redis(REDIS_URL);
+const REDIS_URL = Bun.env.REDIS_URL || "redis://localhost:6379";
+const MONGO_URI = Bun.env.MONGO_URI || "mongodb://127.0.0.1:27017/blog_views";
+const PORT = Number(Bun.env.PORT) || 4000;
+const ALLOWED_ORIGIN = Bun.env.FRONTEND_URL || "http://localhost:3000";
 
-// Connect Database
-const MONGO_URI = "mongodb://127.0.0.1:27017/blog_views";
+const redis = new Redis(REDIS_URL);
 try {
   await mongoose.connect(MONGO_URI);
-  console.log("Connected to MongoDB :D");
+  console.log("Connected to MongoDB");
 } catch (error) {
-  console.error("MongoDB Connection Error:", error);
+  console.error("Connect to MongoDB Error:", error);
+  process.exit(1);
 }
 
-// Schema for push data to MongoDB
+// ViewLog Model
 const ViewLogSchema = new Schema({
   ip: String,
-  slug: String,
+  slug: { type: String, index: true },
   createAt: { type: Date, default: Date.now },
   userAgent: String,
   dedupKey: String,
 });
+ViewLogSchema.index({ createAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 }); // Expire after 90 days
 const ViewLog = mongoose.model("ViewLog", ViewLogSchema);
 
-// Schema for total views
+// PageView Model
 const PageViewSchema = new Schema({
   slug: { type: String, required: true, unique: true },
   count: { type: Number, default: 0 },
 });
 const PageView = mongoose.model("PageView", PageViewSchema);
 
-// Cron Job flush data from Redis Queue to MongoDB every 1 minute
-setInterval(async () => {
-  // Check Queue(Buffer)
-  const queueLength = await redis.llen("blog:queue:views");
+// Flush Function
+const flushDataToMongo = async () => {
+  const queueKey = "blog:queue:views";
+  const processingKey = "blog:queue:processing";
 
-  if (queueLength > 0) {
-    console.log(
-      `ได้เวลา Flush ข้อมูลลง MongoDB แล้วมีข้อมูล ${queueLength} รายการ`
-    );
+  // Check Queue Length
+  const queueLength = await redis.llen(queueKey);
+  if (queueLength === 0) return;
 
-    // Fetch data from Redis (lrange)
-    const rawData = await redis.lrange("blog:queue:views", 0, -1);
+  console.log(
+    `[${new Date().toLocaleTimeString()}] Flushing ${queueLength} items to MongoDB`
+  );
+
+  // Atomic Rename
+  try {
+    const renamed = await redis.renamenx(queueKey, processingKey);
+    if (!renamed) return;
+  } catch (e) {
+    return;
+  }
+
+  try {
+    const rawData = await redis.lrange(processingKey, 0, -1);
 
     if (rawData.length > 0) {
-      // stringify to JSON
       const logsToInsert = rawData.map((item) => JSON.parse(item));
 
-      // Insert to MongoDB
       await ViewLog.insertMany(logsToInsert);
 
-      //   Update View Counts in Redis (for active slugs)
       const counts: Record<string, number> = {};
       logsToInsert.forEach((log: any) => {
         counts[log.slug] = (counts[log.slug] || 0) + 1;
       });
 
-      //   Update total views in MongoDB (Upsert)
       for (const [slug, count] of Object.entries(counts)) {
         await PageView.findOneAndUpdate(
           { slug },
           { $inc: { count: count } },
           { upsert: true, new: true }
         );
-        console.log(`   -> Updated ${slug}: +${count}`);
       }
 
-      // Delete Redis Queue
-      await redis.del("blog:queue:views");
-
-      console.log(
-        `บันทึก ${logsToInsert.length} รายการลง MongoDB เรียบร้อยแล้ว`
-      );
+      console.log(`Saved ${logsToInsert.length} data to MongoDB`);
     }
-  }
-}, 60 * 1000); // 60 seconds
 
-// Port for Bun Server
-const PORT = 4000;
-console.log(`!! Bun Server running on http://localhost:${PORT}`);
+    await redis.del(processingKey);
+  } catch (error) {
+    console.error("Flush Error:", error);
+  }
+};
+
+// Scheduler
+const scheduleNextFlush = () => {
+  const now = new Date();
+  const msUntilNextMinute =
+    (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
+  // console.log(`Next flush in ${msUntilNextMinute} ms`);
+
+  setTimeout(() => {
+    flushDataToMongo();
+
+    scheduleNextFlush();
+  }, msUntilNextMinute);
+};
+
+// Start Scheduler
+scheduleNextFlush();
+
+console.log(`Bun Server running on http://localhost:${PORT}`);
 
 serve({
   port: PORT,
@@ -88,28 +110,31 @@ serve({
     const url = new URL(req.url);
 
     const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
       "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
     };
 
-    // Handle Preflight Request (CORS)
-    if (req.method === "OPTIONS") {
+    if (req.method === "OPTIONS")
       return new Response(null, { headers: corsHeaders });
-    }
 
-    // Route
+    // POST /track
     if (req.method === "POST" && url.pathname === "/track") {
       try {
         const body = (await req.json()) as { slug: string };
         const { slug } = body;
 
-        const userAgent = req.headers.get("user-agent") || "unknown";
+        if (!slug)
+          return new Response("Slug required", {
+            status: 400,
+            headers: corsHeaders,
+          });
 
-        let ip = req.headers.get("x-forwarded-for") || "127.0.0.1";
-        if (ip.includes(",")) {
-          ip = ip.split(",")[0]?.trim() || ip;
-        }
+        const userAgent = req.headers.get("user-agent") || "unknown";
+        const forwarded = req.headers.get("x-forwarded-for");
+        const ip = forwarded
+          ? forwarded.split(",")[0]?.trim() || "127.0.0.1"
+          : "127.0.0.1";
 
         const fingerprint = `${ip}-${userAgent}-${slug}`;
         const dedupKey = `blog:dedup:${Bun.hash(fingerprint)}`;
@@ -118,37 +143,30 @@ serve({
           dedupKey,
           "1",
           "EX",
-          7 * 24 * 60 * 60,
+          7 * 24 * 60 * 60, // 7 days
           "NX"
         );
 
         if (!isNewVisitor) {
-          console.log(`ผู้เยี่ยมชมซ้ำ (ไม่เพิ่มใน Queue) สำหรับหน้า "${slug}"`);
-
+          console.log(`Duplicate: ${slug}`);
           return new Response(JSON.stringify({ status: "Duplicate view" }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
 
         const nextId = await redis.incr("blog:global_id");
-
         const visitorData = {
           id: nextId,
-          ip: ip,
-          slug: slug,
+          ip,
+          slug,
           createAt: new Date().toISOString(),
-          userAgent: userAgent,
-          dedupKey: dedupKey,
+          userAgent,
         };
 
-        // Redis List add to Queue
         await redis.rpush(`blog:queue:views`, JSON.stringify(visitorData));
-        // Redis Set Mark this slug as Active
-        await redis.sadd("blog:active_slugs", slug);
 
-        console.log(`id: ${nextId} เข้าสู่ Queue ของหน้า ${slug}`);
+        console.log(`Queued (id ${nextId}) : ${slug}`);
 
-        // Response data
         return new Response(
           JSON.stringify({ status: "success", data: visitorData }),
           {
@@ -156,14 +174,11 @@ serve({
           }
         );
       } catch (err) {
-        return new Response("Bad Request", {
-          status: 400,
-          headers: corsHeaders,
-        });
+        return new Response("Error", { status: 500, headers: corsHeaders });
       }
     }
 
-    // API GET/stats
+    // GET /stats
     if (req.method === "GET" && url.pathname === "/stats") {
       const slug = url.searchParams.get("slug");
       if (!slug)
@@ -172,9 +187,7 @@ serve({
           headers: corsHeaders,
         });
 
-      // MongoDB PageView
       const page = await PageView.findOne({ slug });
-
       return new Response(JSON.stringify({ views: page?.count || 0 }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
