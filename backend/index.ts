@@ -137,7 +137,7 @@ serve({
           : "127.0.0.1";
 
         const fingerprint = `${ip}-${userAgent}-${slug}`;
-        const dedupKey = `blog:dedup:${Bun.hash(fingerprint)}`;
+        const dedupKey = `blog:dedup:${slug}:${Bun.hash(fingerprint)}`;
 
         const isNewVisitor = await redis.set(
           dedupKey,
