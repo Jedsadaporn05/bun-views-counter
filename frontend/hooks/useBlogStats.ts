@@ -24,10 +24,17 @@ export function useBlogStats(slug: string, trackOnMount: boolean = false) {
     // Function to track view
     const trackView = async () => {
       try {
+        const resolution = `${window.screen.width}x${window.screen.height}`;
+        const trafficSource = document.referrer; 
+
         await fetch(`${API_URL}/track`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ slug }),
+          body: JSON.stringify({
+            slug,
+            resolution,
+            trafficSource,
+          }),
         });
 
         // Update stats after tracking
@@ -52,7 +59,6 @@ export function useBlogStats(slug: string, trackOnMount: boolean = false) {
 
     // Clear interval on unmount
     return () => clearInterval(interval);
-    
   }, [slug, trackOnMount]); // Add slug as dependency. When slug changes, update again
 
   return { views };

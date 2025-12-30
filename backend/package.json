@@ -4,13 +4,15 @@
   "type": "module",
   "private": true,
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/ua-parser-js": "^0.7.39"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
     "ioredis": "^5.8.2",
-    "mongoose": "^9.0.2"
+    "mongoose": "^9.0.2",
+    "ua-parser-js": "^2.0.7"
   }
 }

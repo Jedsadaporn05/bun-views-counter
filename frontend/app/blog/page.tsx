@@ -7,6 +7,10 @@ const sampleBlogs = [
   { slug: "blog-3", title: "blog-3" },
   { slug: "blog-4", title: "blog-4" },
   { slug: "blog-5", title: "blog-5" },
+  { slug: "blog-6", title: "blog-6" },
+  { slug: "blog-7", title: "blog-7" },
+  { slug: "blog-8", title: "blog-8" },
+  { slug: "blog-9", title: "blog-9" },
 ];
 
 export default function BlogPage() {
@@ -20,7 +24,7 @@ export default function BlogPage() {
       </Link>
       <h1 className="text-3xl font-semibold mb-6">บทความทั้งหมด</h1>
 
-      <div className="w-full h-full min-h-100 grid grid-cols-3 gap-4">
+      <div className="w-full h-full min-h-[600px] grid grid-cols-3 gap-4">
         {sampleBlogs.map((blog) => (
           <Link
             key={blog.slug}

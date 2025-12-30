@@ -1,6 +1,7 @@
 import { serve } from "bun";
 import Redis from "ioredis";
 import mongoose, { Schema } from "mongoose";
+import { UAParser } from "ua-parser-js";
 
 const REDIS_URL = Bun.env.REDIS_URL || "redis://localhost:6379";
 const MONGO_URI = Bun.env.MONGO_URI || "mongodb://127.0.0.1:27017/blog_views";
@@ -16,11 +17,29 @@ try {
   process.exit(1);
 }
 
+// DailyStat Model
+const DailyStatSchema = new Schema({
+  date: { type: String, required: true, unique: true },
+  os: { type: Map, of: Number, default: {} },
+  devices: { type: Map, of: Number, default: {} },
+  resolutions: { type: Map, of: Number, default: {} },
+  browsers: { type: Map, of: Number, default: {} },
+  trafficSources: { type: Map, of: Number, default: {} },
+  totalViews: { type: Number, default: 0 },
+  pages: { type: Map, of: Number, default: {} },
+});
+const DailyStat = mongoose.model("DailyStat", DailyStatSchema);
+
 // ViewLog Model
 const ViewLogSchema = new Schema({
-  ip: String,
   slug: { type: String, index: true },
   createAt: { type: Date, default: Date.now },
+  ip: String,
+  os: String,
+  device: String,
+  resolution: String,
+  browser: String,
+  trafficSource: String,
   userAgent: String,
   dedupKey: String,
 });
@@ -77,6 +96,41 @@ const flushDataToMongo = async () => {
       }
 
       console.log(`Saved ${logsToInsert.length} data to MongoDB`);
+
+      // format today (YYYY-MM-DD)
+      const today = new Date().toISOString().split("T")[0];
+
+      const incUpdate: Record<string, number> = {
+        totalViews: logsToInsert.length,
+      };
+
+      logsToInsert.forEach((log: any) => {
+        const addCount = (field: string, value: string) => {
+          const key = value || "unknown";
+          const safeKey = key.replace(/\./g, "_");
+          const mongoKey = `${field}.${safeKey}`;
+          incUpdate[mongoKey] = (incUpdate[mongoKey] || 0) + 1;
+        };
+
+        addCount("pages", log.slug);
+
+        if (log.isDailyUnique) {
+          addCount("resolutions", log.resolution);
+          addCount("browsers", log.browser);
+          addCount("os", log.os);
+          addCount("devices", log.device);
+          addCount("trafficSources", log.trafficSource);
+        }
+      });
+
+      // Update DailyStat
+      await DailyStat.findOneAndUpdate(
+        { date: today },
+        { $inc: incUpdate },
+        { upsert: true, new: true }
+      );
+
+      console.log(`Updated DailyStats for ${today}`);
     }
 
     await redis.del(processingKey);
@@ -121,8 +175,12 @@ serve({
     // POST /track
     if (req.method === "POST" && url.pathname === "/track") {
       try {
-        const body = (await req.json()) as { slug: string };
-        const { slug } = body;
+        const body = (await req.json()) as {
+          slug: string;
+          resolution?: string;
+          trafficSource?: string;
+        };
+        const { slug, resolution, trafficSource } = body;
 
         if (!slug)
           return new Response("Slug required", {
@@ -135,6 +193,21 @@ serve({
         const ip = forwarded
           ? forwarded.split(",")[0]?.trim() || "127.0.0.1"
           : "127.0.0.1";
+
+        // find Device Info from User-Agent
+        const parser = new UAParser(userAgent);
+        const result = parser.getResult();
+
+        // Build device name
+        const deviceVendor = result.device.vendor || "";
+        const deviceModel = result.device.model || "";
+        const deviceName = result.device.type
+          ? `${deviceVendor} ${deviceModel}`.trim()
+          : "Desktop";
+
+        // if no refererer set to Direct
+        const TrafficSource =
+          trafficSource || req.headers.get("referer") || "Direct";
 
         const fingerprint = `${ip}-${userAgent}-${slug}`;
         const dedupKey = `blog:dedup:${slug}:${Bun.hash(fingerprint)}`;
@@ -154,13 +227,40 @@ serve({
           });
         }
 
+        const today = new Date().toISOString().split("T")[0];
+        // Fingerprint for User - Daily deduplication
+        const userFingerprint = `${ip}-${userAgent}`;
+        const dailyVisitorKey = `blog:daily_visitor:${today}:${Bun.hash(
+          userFingerprint
+        )}`;
+
+        const isFirstTimeToday = await redis.set(
+          dailyVisitorKey,
+          "1",
+          "EX",
+          86400,
+          "NX"
+        );
+
+        // format boolean
+        const isDailyUnique = !!isFirstTimeToday;
+
         const nextId = await redis.incr("blog:global_id");
+
         const visitorData = {
           id: nextId,
-          ip,
           slug,
           createAt: new Date().toISOString(),
+          ip,
+          os: `${result.os.name || ""} ${result.os.version || ""}`.trim(),
+          device: deviceName,
+          resolution: resolution || "unknown",
+          browser: `${result.browser.name || ""} ${
+            result.browser.version || ""
+          }`.trim(),
+          trafficSource: TrafficSource,
           userAgent,
+          isDailyUnique: isDailyUnique,
         };
 
         await redis.rpush(`blog:queue:views`, JSON.stringify(visitorData));
