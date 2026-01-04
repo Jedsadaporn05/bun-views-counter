@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 
-const API_URL = process.env.API_URL || "http://localhost:4000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 export function useBlogStats(slug: string, trackOnMount: boolean = false) {
   const [views, setViews] = useState<number | null>(null);
