@@ -139,18 +139,28 @@ const flushDataToMongo = async () => {
   }
 };
 
+const FLUSH_INTERVAL_MINUTES = 10;
+
 // Scheduler
 const scheduleNextFlush = () => {
   const now = new Date();
-  const msUntilNextMinute =
-    (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
+  // const msUntilNextMinute =
+  //   (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
   // console.log(`Next flush in ${msUntilNextMinute} ms`);
+
+  const minutesToWait =
+    FLUSH_INTERVAL_MINUTES - (now.getMinutes() % FLUSH_INTERVAL_MINUTES);
+  const msUntilNextFlush =
+    minutesToWait * 60 * 1000 - now.getSeconds() * 1000 - now.getMilliseconds();
+  console.log(
+    `Next flush in ${(msUntilNextFlush / 1000 / 60).toFixed(2)} minutes`
+  );
 
   setTimeout(() => {
     flushDataToMongo();
 
     scheduleNextFlush();
-  }, msUntilNextMinute);
+  }, msUntilNextFlush);
 };
 
 // Start Scheduler
