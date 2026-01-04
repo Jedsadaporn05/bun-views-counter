@@ -166,10 +166,12 @@ const scheduleNextFlush = () => {
 // Start Scheduler
 scheduleNextFlush();
 
-console.log(`Bun Server running on http://localhost:${PORT}`);
+// console.log(`Bun Server running on http://localhost:${PORT}`);
+console.log(`Bun Server started on port ${PORT}`);
 
 serve({
   port: PORT,
+  hostname: "0.0.0.0",
   async fetch(req) {
     const url = new URL(req.url);
 
