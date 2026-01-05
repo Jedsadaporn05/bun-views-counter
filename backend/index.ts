@@ -177,12 +177,17 @@ serve({
 
     const corsHeaders = {
       "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-      "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+      "Access-Control-Allow-Methods": "POST, GET, OPTIONS, HEAD",
       "Access-Control-Allow-Headers": "Content-Type",
     };
 
     if (req.method === "OPTIONS")
       return new Response(null, { headers: corsHeaders });
+
+    // Handle UptimeRobot (HEAD request)
+    if (req.method === "HEAD") {
+      return new Response("Server alive", { status: 200, headers: corsHeaders });
+    }
 
     // POST /track
     if (req.method === "POST" && url.pathname === "/track") {
