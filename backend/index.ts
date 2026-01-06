@@ -17,41 +17,39 @@ try {
   process.exit(1);
 }
 
-// DailyStat Model
-const DailyStatSchema = new Schema({
-  date: { type: String, required: true, unique: true },
-  os: { type: Map, of: Number, default: {} },
-  devices: { type: Map, of: Number, default: {} },
-  resolutions: { type: Map, of: Number, default: {} },
-  browsers: { type: Map, of: Number, default: {} },
-  trafficSources: { type: Map, of: Number, default: {} },
-  totalViews: { type: Number, default: 0 },
-  pages: { type: Map, of: Number, default: {} },
-});
-const DailyStat = mongoose.model("DailyStat", DailyStatSchema);
-
-// ViewLog Model
-const ViewLogSchema = new Schema({
-  slug: { type: String, index: true },
-  createAt: { type: Date, default: Date.now },
-  ip: String,
-  os: String,
-  device: String,
-  resolution: String,
-  browser: String,
-  trafficSource: String,
-  userAgent: String,
-  dedupKey: String,
-});
-ViewLogSchema.index({ createAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 }); // Expire after 90 days
-const ViewLog = mongoose.model("ViewLog", ViewLogSchema);
-
 // PageView Model
 const PageViewSchema = new Schema({
   slug: { type: String, required: true, unique: true },
   count: { type: Number, default: 0 },
+  updatedAt: { type: Date, default: Date.now },
 });
 const PageView = mongoose.model("PageView", PageViewSchema);
+
+// UserView Model
+const UserViewSchema = new Schema(
+  {
+    createAt: { type: Date, required: true },
+    metadata: {
+      slug: String,
+      ip: String,
+      os: String,
+      device: String,
+      resolution: String,
+      browser: String,
+      trafficSource: String,
+      userAgent: String,
+      isNewVisitor: Boolean,
+    },
+  },
+  {
+    timeseries: {
+      timeField: "createAt",
+      metaField: "metadata",
+      granularity: "minutes",
+    },
+  }
+);
+const UserView = mongoose.model("UserView", UserViewSchema);
 
 // Flush Function
 const flushDataToMongo = async () => {
@@ -78,59 +76,41 @@ const flushDataToMongo = async () => {
     const rawData = await redis.lrange(processingKey, 0, -1);
 
     if (rawData.length > 0) {
-      const logsToInsert = rawData.map((item) => JSON.parse(item));
+      const logs = rawData.map((item) => JSON.parse(item));
 
-      await ViewLog.insertMany(logsToInsert);
+      const userViewsToInsert = logs.map((log) => ({
+        createAt: new Date(log.createAt),
+        metadata: {
+          slug: log.slug,
+          ip: log.ip,
+          os: log.os,
+          device: log.device,
+          resolution: log.resolution,
+          browser: log.browser,
+          trafficSource: log.trafficSource,
+          userAgent: log.userAgent,
+          isNewVisitor: log.isNewVisitor,
+        },
+      }));
 
       const counts: Record<string, number> = {};
-      logsToInsert.forEach((log: any) => {
+      logs.forEach((log: any) => {
         counts[log.slug] = (counts[log.slug] || 0) + 1;
       });
 
+      // Insert UserViews
+      await UserView.insertMany(userViewsToInsert);
+
+      // Update Counter
       for (const [slug, count] of Object.entries(counts)) {
         await PageView.findOneAndUpdate(
           { slug },
-          { $inc: { count: count } },
+          { $inc: { count: count }, $set: { updatedAt: new Date() } },
           { upsert: true, new: true }
         );
       }
 
-      console.log(`Saved ${logsToInsert.length} data to MongoDB`);
-
-      // format today (YYYY-MM-DD)
-      const today = new Date().toISOString().split("T")[0];
-
-      const incUpdate: Record<string, number> = {
-        totalViews: logsToInsert.length,
-      };
-
-      logsToInsert.forEach((log: any) => {
-        const addCount = (field: string, value: string) => {
-          const key = value || "unknown";
-          const safeKey = key.replace(/\./g, "_");
-          const mongoKey = `${field}.${safeKey}`;
-          incUpdate[mongoKey] = (incUpdate[mongoKey] || 0) + 1;
-        };
-
-        addCount("pages", log.slug);
-
-        if (log.isDailyUnique) {
-          addCount("resolutions", log.resolution);
-          addCount("browsers", log.browser);
-          addCount("os", log.os);
-          addCount("devices", log.device);
-          addCount("trafficSources", log.trafficSource);
-        }
-      });
-
-      // Update DailyStat
-      await DailyStat.findOneAndUpdate(
-        { date: today },
-        { $inc: incUpdate },
-        { upsert: true, new: true }
-      );
-
-      console.log(`Updated DailyStats for ${today}`);
+      console.log(`Saved ${logs.length} data to MongoDB`);
     }
 
     await redis.del(processingKey);
@@ -140,25 +120,21 @@ const flushDataToMongo = async () => {
 };
 
 const FLUSH_INTERVAL_MINUTES = 10;
-
+let flushTimeoutId: Timer | null = null;
 // Scheduler
 const scheduleNextFlush = () => {
   const now = new Date();
-  // const msUntilNextMinute =
-  //   (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
-  // console.log(`Next flush in ${msUntilNextMinute} ms`);
-
   const minutesToWait =
     FLUSH_INTERVAL_MINUTES - (now.getMinutes() % FLUSH_INTERVAL_MINUTES);
   const msUntilNextFlush =
     minutesToWait * 60 * 1000 - now.getSeconds() * 1000 - now.getMilliseconds();
+
   console.log(
     `Next flush in ${(msUntilNextFlush / 1000 / 60).toFixed(2)} minutes`
   );
 
-  setTimeout(() => {
-    flushDataToMongo();
-
+  flushTimeoutId = setTimeout(async () => {
+    await flushDataToMongo();
     scheduleNextFlush();
   }, msUntilNextFlush);
 };
@@ -166,7 +142,6 @@ const scheduleNextFlush = () => {
 // Start Scheduler
 scheduleNextFlush();
 
-// console.log(`Bun Server running on http://localhost:${PORT}`);
 console.log(`Bun Server started on port ${PORT}`);
 
 serve({
@@ -186,7 +161,10 @@ serve({
 
     // Handle UptimeRobot (HEAD request)
     if (req.method === "HEAD") {
-      return new Response("Server alive", { status: 200, headers: corsHeaders });
+      return new Response("Server alive", {
+        status: 200,
+        headers: corsHeaders,
+      });
     }
 
     // POST /track
@@ -194,10 +172,11 @@ serve({
       try {
         const body = (await req.json()) as {
           slug: string;
-          resolution?: string;
-          trafficSource?: string;
+          resolution: string;
+          trafficSource: string;
+          visitorId: string;
         };
-        const { slug, resolution, trafficSource } = body;
+        const { slug, resolution, trafficSource, visitorId } = body;
 
         if (!slug)
           return new Response("Slug required", {
@@ -211,56 +190,35 @@ serve({
           ? forwarded.split(",")[0]?.trim() || "127.0.0.1"
           : "127.0.0.1";
 
-        // find Device Info from User-Agent
         const parser = new UAParser(userAgent);
         const result = parser.getResult();
-
-        // Build device name
-        const deviceVendor = result.device.vendor || "";
-        const deviceModel = result.device.model || "";
         const deviceName = result.device.type
-          ? `${deviceVendor} ${deviceModel}`.trim()
+          ? `${result.device.vendor || ""} ${result.device.model || ""}`.trim()
           : "Desktop";
-
-        // if no refererer set to Direct
         const TrafficSource =
           trafficSource || req.headers.get("referer") || "Direct";
 
-        const fingerprint = `${ip}-${userAgent}-${slug}`;
-        const dedupKey = `blog:dedup:${slug}:${Bun.hash(fingerprint)}`;
+        const identity = `${ip}-${userAgent}-${visitorId}`;
+        const today = new Date().toISOString().split("T")[0];
 
-        const isNewVisitor = await redis.set(
-          dedupKey,
-          "1",
-          "EX",
-          7 * 24 * 60 * 60, // 7 days
-          "NX"
-        );
+        const pageKey = `blog:view:${today}:${slug}:${Bun.hash(identity)}`;
+        const isNewPageView = await redis.set(pageKey, "1", "EX", 86400, "NX");
 
-        if (!isNewVisitor) {
-          console.log(`Duplicate: ${slug}`);
-          return new Response(JSON.stringify({ status: "Duplicate view" }), {
+        if (!isNewPageView) {
+          return new Response(JSON.stringify({ status: "Duplicate" }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
 
-        const today = new Date().toISOString().split("T")[0];
-        // Fingerprint for User - Daily deduplication
-        const userFingerprint = `${ip}-${userAgent}`;
-        const dailyVisitorKey = `blog:daily_visitor:${today}:${Bun.hash(
-          userFingerprint
-        )}`;
-
-        const isFirstTimeToday = await redis.set(
-          dailyVisitorKey,
+        // New Visitor Check
+        const visitorKey = `blog:visitor:${today}:${Bun.hash(identity)}`;
+        const isNewVisitor = await redis.set(
+          visitorKey,
           "1",
           "EX",
           86400,
           "NX"
         );
-
-        // format boolean
-        const isDailyUnique = !!isFirstTimeToday;
 
         const nextId = await redis.incr("blog:global_id");
 
@@ -277,13 +235,13 @@ serve({
           }`.trim(),
           trafficSource: TrafficSource,
           userAgent,
-          isDailyUnique: isDailyUnique,
+          isNewVisitor: !!isNewVisitor,
         };
 
         await redis.rpush(`blog:queue:views`, JSON.stringify(visitorData));
-
-        console.log(`Queued (id ${nextId}) : ${slug}`);
-
+        console.log(
+          `Queued (id ${nextId}) : ${slug} | View: ${!!isNewPageView} | Visitor: ${!!isNewVisitor}`
+        );
         return new Response(
           JSON.stringify({ status: "success", data: visitorData }),
           {
