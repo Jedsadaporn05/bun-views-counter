@@ -4,6 +4,22 @@ import { useEffect, useState, useRef } from "react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
+const getImmediateTrafficSource = () => {
+  if (typeof window === "undefined") return "Direct Entry";
+
+  const params = new URLSearchParams(window.location.search);
+  const utm = params.get("utm_source");
+  if (utm) return utm;
+
+  const saved = sessionStorage.getItem("blog_source");
+  if (saved) return saved;
+
+  const ref = document.referrer;
+  if (ref && !ref.includes(window.location.hostname)) return ref;
+
+  return "Direct Entry";
+};
+
 const getVisitorId = () => {
   if (typeof window === "undefined") return "";
   let vid = localStorage.getItem("blog_visitor_id");
@@ -14,21 +30,23 @@ const getVisitorId = () => {
   return vid;
 };
 
-// Client-side Dedup
 const checkClientSideDedup = (slug: string) => {
   if (typeof window === "undefined") return false;
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    const storageKey = `blog_viewed_${today}`;
 
-  const today = new Date().toISOString().split("T")[0];
-  const storageKey = `blog_viewed_${today}`;
+    const viewedRaw = localStorage.getItem(storageKey);
+    const viewedList: string[] = viewedRaw ? JSON.parse(viewedRaw) : [];
 
-  const viewedRaw = localStorage.getItem(storageKey);
-  const viewedList: string[] = viewedRaw ? JSON.parse(viewedRaw) : [];
+    if (viewedList.includes(slug)) return true;
 
-  if (viewedList.includes(slug)) return true;
-
-  viewedList.push(slug);
-  localStorage.setItem(storageKey, JSON.stringify(viewedList));
-  return false;
+    viewedList.push(slug);
+    localStorage.setItem(storageKey, JSON.stringify(viewedList));
+    return false;
+  } catch (err) {
+    return false;
+  }
 };
 
 export function useBlogStats(slug: string, trackOnMount: boolean = false) {
@@ -36,7 +54,6 @@ export function useBlogStats(slug: string, trackOnMount: boolean = false) {
   const hasTracked = useRef(false);
 
   useEffect(() => {
-    // Function to fetch stats
     const fetchStats = async () => {
       try {
         const res = await fetch(`${API_URL}/stats?slug=${slug}`);
@@ -47,9 +64,9 @@ export function useBlogStats(slug: string, trackOnMount: boolean = false) {
       }
     };
 
-    // Function to track view
     const trackView = async () => {
       const isViewedToday = checkClientSideDedup(slug);
+
       if (isViewedToday) {
         console.log(`Skipped tracking already viewed ${slug} today`);
         return;
@@ -57,9 +74,6 @@ export function useBlogStats(slug: string, trackOnMount: boolean = false) {
 
       try {
         const resolution = `${window.screen.width}x${window.screen.height}`;
-        const trafficSource = document.referrer;
-
-        const visitorId = getVisitorId();
 
         await fetch(`${API_URL}/track`, {
           method: "POST",
@@ -67,8 +81,8 @@ export function useBlogStats(slug: string, trackOnMount: boolean = false) {
           body: JSON.stringify({
             slug,
             resolution,
-            trafficSource,
-            visitorId,
+            trafficSource: getImmediateTrafficSource(),
+            visitorId: getVisitorId(),
           }),
         });
 
@@ -79,7 +93,6 @@ export function useBlogStats(slug: string, trackOnMount: boolean = false) {
       }
     };
 
-    // Fetch stats
     fetchStats();
 
     if (trackOnMount && !hasTracked.current) {
@@ -87,9 +100,7 @@ export function useBlogStats(slug: string, trackOnMount: boolean = false) {
       trackView();
     }
 
-    // Set up interval to refresh stats every 1 minute
     const interval = setInterval(fetchStats, 60000);
-    // Clear interval on unmount
     return () => clearInterval(interval);
   }, [slug, trackOnMount]);
 
