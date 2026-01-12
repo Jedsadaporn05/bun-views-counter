@@ -1,68 +1,65 @@
 import { redis } from "../config/database";
 import { UAParser } from "ua-parser-js";
 import { type TrackBody } from "../types/TrackBody";
+import { ENV } from "../config/env";
+
+const MY_DOMAIN = ENV.MY_DOMAIN;
 
 const parseTrafficSource = (source: string): string => {
-  if (
-    !source ||
-    source === "Direct" ||
-    source === "Direct Entry" ||
-    source === "unknown"
-  ) {
+  if (!source || source === "Direct" || source === "unknown") {
     return "Direct Entry";
   }
 
-  const src = source.toLowerCase().trim();
+  const lowerSource = source.toLowerCase().trim();
 
-  // Social Media
-  if (src.includes("facebook") || src.includes("fb.me")) return "Facebook";
-  if (src.includes("instagram") || src.includes("l.instagram.com"))
-    return "Instagram";
-  if (src.includes("t.co") || src.includes("twitter") || src.includes("x.com"))
-    return "X / Twitter";
-  if (src.includes("line.me") || src.includes("line.naver.jp")) return "Line";
-  if (src.includes("discord")) return "Discord";
-  if (src.includes("linkedin")) return "LinkedIn";
-  if (src.includes("youtube") || src.includes("youtu.be")) return "YouTube";
-  if (src.includes("tiktok")) return "TikTok";
-
-  // Search Engine
-  if (src.includes("google")) return "Google Search";
-  if (src.includes("bing")) return "Bing Search";
-  if (src.includes("yahoo")) return "Yahoo Search";
-
-  if (src.startsWith("http")) {
-    try {
-      const url = new URL(source);
-      const domain = url.hostname.replace("www.", "");
-
-      if (domain.length > 0 && domain.length < 50 && domain.includes(".")) {
-        return domain;
-      }
-    } catch (err) {}
+  // Check if source is exactly one of the custom sources
+  const customSources = ["newsletter", "email", "sms", "qrcode", "internal"];
+  if (customSources.includes(lowerSource)) {
+    return lowerSource.charAt(0).toUpperCase() + lowerSource.slice(1);
   }
 
-  const allowedCustomSources = [
-    "newsletter",
-    "email",
-    "internal",
-    "announcement",
-    "ads",
-  ];
-  if (allowedCustomSources.includes(src)) {
-    return source.charAt(0).toUpperCase() + source.slice(1);
-  }
+  try {
+    const urlStr = lowerSource.startsWith("http")
+      ? lowerSource
+      : `https://${lowerSource}`;
+    const url = new URL(urlStr);
+    let hostname = url.hostname.replace(/^www\./, "");
 
-  if (
-    source.includes("(") &&
-    (src.includes("facebook") ||
-      src.includes("google") ||
-      src.includes("email"))
-  ) {
-    return source;
-  }
+    if (hostname === MY_DOMAIN || hostname === "localhost") {
+      return "Internal";
+    }
 
-  return "Direct Entry";
+    // Social Media
+    if (hostname.includes("facebook") || hostname === "fb.me")
+      return "Facebook";
+    if (hostname.includes("instagram")) return "Instagram";
+    if (
+      hostname.includes("twitter") ||
+      hostname === "t.co" ||
+      hostname === "x.com"
+    )
+      return "X (Twitter)";
+    if (hostname.includes("linkedin")) return "LinkedIn";
+    if (hostname.includes("youtube") || hostname === "youtu.be")
+      return "YouTube";
+    if (hostname.includes("tiktok")) return "TikTok";
+    if (hostname.includes("line.me") || hostname.includes("naver.jp"))
+      return "Line";
+    if (hostname.includes("discord")) return "Discord";
+    if (hostname.includes("reddit")) return "Reddit";
+    if (hostname.includes("pinterest")) return "Pinterest";
+
+    // Search Engine
+    if (hostname.includes("google")) return "Google Search";
+    if (hostname.includes("bing")) return "Bing Search";
+    if (hostname.includes("yahoo")) return "Yahoo Search";
+    if (hostname.includes("duckduckgo")) return "DuckDuckGo";
+    if (hostname.includes("baidu")) return "Baidu";
+
+    return hostname;
+  } catch (err) {
+    return "Direct Entry";
+  }
 };
 
 export const handleTrack = async (req: Request) => {
@@ -74,8 +71,6 @@ export const handleTrack = async (req: Request) => {
 
     // Parser
     const userAgent = req.headers.get("user-agent") || "unknown";
-    const forwarded = req.headers.get("x-forwarded-for");
-    const ip = forwarded ? forwarded.split(",")[0]?.trim() : "127.0.0.1";
 
     const parser = new UAParser(userAgent);
     const result = parser.getResult();
@@ -88,17 +83,18 @@ export const handleTrack = async (req: Request) => {
     const cleanSource = parseTrafficSource(rawSource);
 
     // Logic Redis Dedup
-    const stableId = Bun.hash(`${ip}-${userAgent}`).toString();
-    const sessionId = visitorId || stableId;
-    // const identity = visitorId || `${ip}-${userAgent}`;
-    // const idHash = Bun.hash(identity).toString();
+    let sessionId = visitorId;
+
+    if (!sessionId) {
+      sessionId = Bun.hash(userAgent).toString();
+    }
 
     const today = new Date().toISOString().split("T")[0];
 
     // Visitor Deduplication (1 Day)
-    const visitorKey = `blog:visitor:${today}:${stableId}`;
+    const visitorKey = `blog:visitor:${today}:${sessionId}`;
     // PageView Deduplication (1 Day)
-    const pageKey = `blog:view:${today}:${slug}:${stableId}`;
+    const pageKey = `blog:view:${today}:${slug}:${sessionId}`;
 
     const [isNewVisitor, isNewPageView] = await Promise.all([
       redis.set(visitorKey, "1", "EX", 86400, "NX"),
@@ -118,10 +114,9 @@ export const handleTrack = async (req: Request) => {
     const nextId = await redis.incr("blog:global_id");
     const visitorData = {
       id: nextId,
-      visitorId: stableId,
+      visitorId: sessionId,
       slug,
       createAt: new Date().toISOString(),
-      ip,
       os: `${result.os.name || ""} ${result.os.version || ""}`.trim(),
       device: deviceName,
       resolution: resolution || "unknown",

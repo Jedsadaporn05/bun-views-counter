@@ -31,7 +31,6 @@ export const flushDataToMongo = async () => {
       createAt: new Date(log.createAt),
       visitorId: log.visitorId,
       slug: log.slug,
-      ip: log.ip,
       os: log.os,
       device: log.device,
       resolution: log.resolution,

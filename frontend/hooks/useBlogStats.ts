@@ -4,22 +4,6 @@ import { useEffect, useState, useRef } from "react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
-const getImmediateTrafficSource = () => {
-  if (typeof window === "undefined") return "Direct Entry";
-
-  const params = new URLSearchParams(window.location.search);
-  const utm = params.get("utm_source");
-  if (utm) return utm;
-
-  const saved = sessionStorage.getItem("blog_source");
-  if (saved) return saved;
-
-  const ref = document.referrer;
-  if (ref && !ref.includes(window.location.hostname)) return ref;
-
-  return "Direct Entry";
-};
-
 const getVisitorId = () => {
   if (typeof window === "undefined") return "";
   let vid = localStorage.getItem("blog_visitor_id");
@@ -28,6 +12,31 @@ const getVisitorId = () => {
     localStorage.setItem("blog_visitor_id", vid);
   }
   return vid;
+};
+
+const resolveTrafficSource = () => {
+  if (typeof window === "undefined") return "Direct";
+
+  const SESSION_KEY = "blog_traffic_source";
+
+  const params = new URLSearchParams(window.location.search);
+  const utmSource = params.get("utm_source");
+  if (utmSource) {
+    sessionStorage.setItem(SESSION_KEY, utmSource);
+    return utmSource;
+  }
+
+  const referrer = document.referrer;
+
+  if (referrer && !referrer.includes(window.location.hostname)) {
+    sessionStorage.setItem(SESSION_KEY, referrer);
+    return referrer;
+  }
+
+  const storedSource = sessionStorage.getItem(SESSION_KEY);
+  if (storedSource) return storedSource;
+
+  return "Direct";
 };
 
 const checkClientSideDedup = (slug: string) => {
@@ -66,11 +75,13 @@ export function useBlogStats(slug: string, trackOnMount: boolean = false) {
 
     const trackView = async () => {
       const isViewedToday = checkClientSideDedup(slug);
-
       if (isViewedToday) {
         console.log(`Skipped tracking already viewed ${slug} today`);
         return;
       }
+
+      const trafficSource = resolveTrafficSource();
+      const visitorId = getVisitorId();
 
       try {
         const resolution = `${window.screen.width}x${window.screen.height}`;
@@ -81,8 +92,8 @@ export function useBlogStats(slug: string, trackOnMount: boolean = false) {
           body: JSON.stringify({
             slug,
             resolution,
-            trafficSource: getImmediateTrafficSource(),
-            visitorId: getVisitorId(),
+            trafficSource,
+            visitorId,
           }),
         });
 
