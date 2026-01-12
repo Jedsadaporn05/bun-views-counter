@@ -11,55 +11,47 @@ const parseTrafficSource = (source: string): string => {
   }
 
   const lowerSource = source.toLowerCase().trim();
+  let valueToCheck = lowerSource;
 
-  // Check if source is exactly one of the custom sources
-  const customSources = ["newsletter", "email", "sms", "qrcode", "internal"];
-  if (customSources.includes(lowerSource)) {
-    return lowerSource.charAt(0).toUpperCase() + lowerSource.slice(1);
+  if (lowerSource.startsWith("http")) {
+    try {
+      const url = new URL(lowerSource);
+      if (url.hostname.includes(MY_DOMAIN) || url.hostname === "localhost") {
+        return "Internal";
+      }
+
+      valueToCheck = url.hostname.replace(/^www\./, "");
+    } catch (err) {}
   }
 
-  try {
-    const urlStr = lowerSource.startsWith("http")
-      ? lowerSource
-      : `https://${lowerSource}`;
-    const url = new URL(urlStr);
-    let hostname = url.hostname.replace(/^www\./, "");
+  // Social Media
+  if (valueToCheck.includes("facebook") || valueToCheck === "fb.me")
+    return "Facebook";
+  if (valueToCheck.includes("instagram")) return "Instagram";
+  if (
+    valueToCheck.includes("twitter") ||
+    valueToCheck.includes("t.co") ||
+    valueToCheck.includes("x.com")
+  )
+    return "X (Twitter)";
+  if (valueToCheck.includes("linkedin")) return "LinkedIn";
+  if (valueToCheck.includes("youtube") || valueToCheck.includes("youtu.be"))
+    return "YouTube";
+  if (valueToCheck.includes("tiktok")) return "TikTok";
+  if (valueToCheck.includes("line.me") || valueToCheck.includes("naver.jp"))
+    return "Line";
+  if (valueToCheck.includes("discord")) return "Discord";
+  if (valueToCheck.includes("reddit")) return "Reddit";
+  if (valueToCheck.includes("pinterest")) return "Pinterest";
 
-    if (hostname === MY_DOMAIN || hostname === "localhost") {
-      return "Internal";
-    }
+  // Search Engine
+  if (valueToCheck.includes("google")) return "Google Search";
+  if (valueToCheck.includes("bing")) return "Bing Search";
+  if (valueToCheck.includes("yahoo")) return "Yahoo Search";
+  if (valueToCheck.includes("duckduckgo")) return "DuckDuckGo";
+  if (valueToCheck.includes("baidu")) return "Baidu";
 
-    // Social Media
-    if (hostname.includes("facebook") || hostname === "fb.me")
-      return "Facebook";
-    if (hostname.includes("instagram")) return "Instagram";
-    if (
-      hostname.includes("twitter") ||
-      hostname === "t.co" ||
-      hostname === "x.com"
-    )
-      return "X (Twitter)";
-    if (hostname.includes("linkedin")) return "LinkedIn";
-    if (hostname.includes("youtube") || hostname === "youtu.be")
-      return "YouTube";
-    if (hostname.includes("tiktok")) return "TikTok";
-    if (hostname.includes("line.me") || hostname.includes("naver.jp"))
-      return "Line";
-    if (hostname.includes("discord")) return "Discord";
-    if (hostname.includes("reddit")) return "Reddit";
-    if (hostname.includes("pinterest")) return "Pinterest";
-
-    // Search Engine
-    if (hostname.includes("google")) return "Google Search";
-    if (hostname.includes("bing")) return "Bing Search";
-    if (hostname.includes("yahoo")) return "Yahoo Search";
-    if (hostname.includes("duckduckgo")) return "DuckDuckGo";
-    if (hostname.includes("baidu")) return "Baidu";
-
-    return hostname;
-  } catch (err) {
-    return "Direct Entry";
-  }
+  return source.charAt(0).toUpperCase() + source.slice(1);
 };
 
 export const handleTrack = async (req: Request) => {

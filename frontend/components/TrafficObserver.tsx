@@ -11,7 +11,7 @@ export default function TrafficObserver() {
     const utmSource = urlParams.get("utm_source");
     const referrer = document.referrer;
 
-    const existingSource = sessionStorage.getItem("blog_source");
+    const existingSource = sessionStorage.getItem("blog_traffic_source");
 
     let finalSource = "";
 
@@ -31,11 +31,11 @@ export default function TrafficObserver() {
     }
 
     if (finalSource) {
-      sessionStorage.setItem("blog_source", finalSource);
+      sessionStorage.setItem("blog_traffic_source", finalSource);
     } else if (!existingSource) {
-      sessionStorage.setItem("blog_source", "Direct Entry");
+      sessionStorage.setItem("blog_traffic_source", "Direct Entry");
     }
   }, []);
- 
+
   return null;
 }

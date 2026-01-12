@@ -18,16 +18,15 @@ const resolveTrafficSource = () => {
   if (typeof window === "undefined") return "Direct";
 
   const SESSION_KEY = "blog_traffic_source";
-
   const params = new URLSearchParams(window.location.search);
   const utmSource = params.get("utm_source");
+
   if (utmSource) {
     sessionStorage.setItem(SESSION_KEY, utmSource);
     return utmSource;
   }
 
   const referrer = document.referrer;
-
   if (referrer && !referrer.includes(window.location.hostname)) {
     sessionStorage.setItem(SESSION_KEY, referrer);
     return referrer;
@@ -75,13 +74,16 @@ export function useBlogStats(slug: string, trackOnMount: boolean = false) {
 
     const trackView = async () => {
       const isViewedToday = checkClientSideDedup(slug);
-      if (isViewedToday) {
+      const trafficSource = resolveTrafficSource();
+      const visitorId = getVisitorId();
+
+      const params = new URLSearchParams(window.location.search);
+      const hasUtmSource = !!params.get("utm_source");
+
+      if (isViewedToday && !hasUtmSource) {
         console.log(`Skipped tracking already viewed ${slug} today`);
         return;
       }
-
-      const trafficSource = resolveTrafficSource();
-      const visitorId = getVisitorId();
 
       try {
         const resolution = `${window.screen.width}x${window.screen.height}`;
