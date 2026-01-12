@@ -40,7 +40,7 @@ export default function BlogCard() {
                     <span>{blog.date}</span>
                     <div className="flex items-center gap-1.5">
                       <Eye className="w-3.5 h-3.5" />
-                      <ViewCounter slug={blog.slug} className="text-xs" />
+                      <ViewCounter slug={blog.slug} className="text-xs" track={false} />
                     </div>
                   </div>
                 </div>

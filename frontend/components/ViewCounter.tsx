@@ -2,14 +2,18 @@
 
 import { useBlogStats } from "@/hooks/useBlogStats";
 
+interface ViewCounterProps {
+  slug: string;
+  track?: boolean;
+  className?: string;
+}
+
 export default function ViewCounter({
   slug,
+  track = true,
   className = "",
-}: {
-  slug: string;
-  className?: string;
-}) {
-  const { views } = useBlogStats(slug, false);
+}: ViewCounterProps) {
+  const { views } = useBlogStats(slug, track);
 
   if (views === null)
     return (

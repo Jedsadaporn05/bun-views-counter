@@ -1,20 +1,16 @@
-"use client";
-
-import { useBlogStats } from "@/hooks/useBlogStats";
 import Link from "next/link";
 import Image from "next/image";
-import { use } from "react";
 import { ArrowLeft, Calendar, Eye } from "lucide-react";
 import { BlogsData } from "@/data/blogs";
+import ViewCounter from "@/components/ViewCounter";
 
-export default function BlogBySlugPage({
+export default async function BlogBySlugPage({
   params,
 }: {
   params: Promise<{ slug: string }>;
 }) {
-  const { slug } = use(params);
+  const { slug } = await params;
   const blog = BlogsData.find((b) => b.slug === slug);
-  const { views } = useBlogStats(slug, true);
 
   if (!blog) {
     return (
@@ -76,7 +72,7 @@ export default function BlogBySlugPage({
             <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-lg border border-slate-100 self-start sm:self-auto">
               <Eye className="w-4 h-4 text-slate-400" />
               <span className="text-sm font-semibold text-slate-700">
-                {views !== null ? views.toLocaleString() : "..."}
+                <ViewCounter slug={blog.slug} track={true} />
               </span>
               <span className="text-xs text-slate-400">views</span>
             </div>
@@ -121,7 +117,7 @@ export default function BlogBySlugPage({
             Behind the scenes, our system utilizes high-performance edge
             functions to capture metrics in real-time. This ensures that the{" "}
             <strong className="text-slate-900 font-semibold">
-              {views?.toLocaleString() || "live"} views
+              <ViewCounter slug={blog.slug} className="text-xs" track={false} />
             </strong>{" "}
             you see at the top are accurate down to the second, without
             compromising on privacy or performance.
