@@ -3,6 +3,7 @@ import Image from "next/image";
 import { ArrowLeft, Calendar, Eye } from "lucide-react";
 import { BlogsData } from "@/data/blogs";
 import ViewCounter from "@/components/ViewCounter";
+import GAViewCounter from "@/components/GAViewCounter";
 
 export default async function BlogBySlugPage({
   params,
@@ -19,7 +20,7 @@ export default async function BlogBySlugPage({
           Post not found
         </h1>
         <p className="text-slate-500 mb-6">
-          The blog post you're looking for doesn't exist.
+          The blog post you’re looking for doesn’t exist.
         </p>
         <Link
           href="/blog"
@@ -42,6 +43,10 @@ export default async function BlogBySlugPage({
             >
               {blog.category}
             </span>
+            {/* Google Analytics Views */}
+            <div className="px-3 py-1 bg-slate-50 text-slate-700 text-[11px] font-semibold uppercase tracking-wider rounded-md border border-slate-200">
+              <GAViewCounter slug={`/blog/${blog.slug}`} />
+            </div>
             <span className="text-slate-300 hidden sm:block">·</span>
             <div className="flex items-center gap-1.5 text-slate-500 text-xs">
               <Calendar className="w-3.5 h-3.5" />
@@ -56,7 +61,7 @@ export default async function BlogBySlugPage({
 
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 border border-slate-200 flex items-center justify-center flex-shrink-0">
+              <div className="w-11 h-11 rounded-full bg-linear-to-br from-slate-100 to-slate-200 border border-slate-200 flex items-center justify-center shrink-0">
                 <span className="text-base font-semibold text-slate-600">
                   A
                 </span>
@@ -98,16 +103,16 @@ export default async function BlogBySlugPage({
             Introduction
           </h2>
           <p className="text-slate-600 leading-relaxed mb-6">
-            In today's fast-paced digital landscape, understanding how your
+            In today’s fast-paced digital landscape, understanding how your
             content performs is crucial. This article explores the fundamental
             concepts behind {blog.category.toLowerCase()} and how it can
             transform the way you approach your content strategy.
           </p>
 
           <blockquote className="border-l-4 border-slate-300 pl-6 my-8 italic text-slate-700 text-lg">
-            "Analytics should empower creators, not exploit users. This
+            “Analytics should empower creators, not exploit users. This
             philosophy guides every decision we make when building tools for
-            content creators."
+            content creators.”
           </blockquote>
 
           <h2 className="text-2xl font-semibold text-slate-900 mt-12 mb-6">
@@ -154,7 +159,6 @@ export default async function BlogBySlugPage({
               </span>
             ))}
           </div>
-
           {/* Back to blog link */}
           <Link
             href="/blog"

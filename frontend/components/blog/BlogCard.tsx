@@ -3,6 +3,7 @@ import { Eye } from "lucide-react";
 import ViewCounter from "../ViewCounter";
 import Link from "next/link";
 import { BlogsData } from "@/data/blogs";
+import GAViewCounter from "../GAViewCounter";
 
 export default function BlogCard() {
   const blogs = BlogsData;
@@ -23,7 +24,7 @@ export default function BlogCard() {
               key={blog.slug}
               className="group cursor-pointer flex flex-col h-full bg-white rounded-lg border border-slate-100 overflow-hidden hover:border-slate-200 transition-all duration-300 hover:-translate-y-1"
             >
-              <div className="aspect-[16/10] overflow-hidden bg-slate-50 relative">
+              <div className="aspect-16/10 overflow-hidden bg-slate-50 relative">
                 <Image
                   src={blog.src}
                   alt={blog.title}
@@ -40,7 +41,11 @@ export default function BlogCard() {
                     <span>{blog.date}</span>
                     <div className="flex items-center gap-1.5">
                       <Eye className="w-3.5 h-3.5" />
-                      <ViewCounter slug={blog.slug} className="text-xs" track={false} />
+                      <ViewCounter
+                        slug={blog.slug}
+                        className="text-xs"
+                        track={false}
+                      />
                     </div>
                   </div>
                 </div>
@@ -50,6 +55,11 @@ export default function BlogCard() {
                 <p className="text-[13px] text-slate-500 leading-relaxed flex-1">
                   {blog.description}
                 </p>
+
+                {/* Google Analytics Views */}
+                <div className="flex items-center gap-4 text-xs font-normal text-slate-400 uppercase mt-3">
+                  <GAViewCounter slug={`/blog/${blog.slug}`} />
+                </div>
               </div>
             </Link>
           ))}
