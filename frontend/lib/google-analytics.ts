@@ -1,5 +1,5 @@
 import { BetaAnalyticsDataClient } from "@google-analytics/data";
-import { unstable_cache } from "next/cache";
+import { cache } from "react";
 
 const propertyId = process.env.GA_PROPERTY_ID;
 
@@ -10,29 +10,27 @@ const client = new BetaAnalyticsDataClient({
   },
 });
 
-export const getPageViews = unstable_cache(
-  async (path: string) => {
-    try {
-      const [response] = await client.runReport({
-        property: `properties/${propertyId}`,
-        dateRanges: [{ startDate: "2020-01-01", endDate: "today" }],
-        dimensions: [{ name: "pagePath" }],
-        metrics: [{ name: "screenPageViews" }],
-        dimensionFilter: {
-          filter: {
-            fieldName: "pagePath",
-            stringFilter: { value: path },
-          },
-        },
-      });
+export const getPageViews = cache(async (path: string) => {
+  if (!propertyId) return 0;
 
-      const views = response.rows?.[0]?.metricValues?.[0]?.value || "0";
-      return parseInt(views);
-    } catch (error) {
-      console.error("GA Fetch Error:", error);
-      return 0;
-    }
-  },
-  ["google-analytics-views"], // cache key
-  { revalidate: 3600, tags: ["views"] } // cache 1 hour
-);
+  try {
+    const [response] = await client.runReport({
+      property: `properties/${propertyId}`,
+      dateRanges: [{ startDate: "2020-01-01", endDate: "today" }],
+      dimensions: [{ name: "pagePath" }],
+      metrics: [{ name: "screenPageViews" }],
+      dimensionFilter: {
+        filter: {
+          fieldName: "pagePath",
+          stringFilter: { value: path },
+        },
+      },
+    });
+
+    const views = response.rows?.[0]?.metricValues?.[0]?.value || "0";
+    return parseInt(views);
+  } catch (error) {
+    console.error("GA Fetch Error:", error);
+    return 0;
+  }
+});
